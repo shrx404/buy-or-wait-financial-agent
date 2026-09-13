@@ -68,6 +68,8 @@ WHAT TO DO:
    separators. Do not convert currency. Return the raw numeric value
    exactly as shown, in the document's own currency. Handwritten digits
    should be read carefully, character by character, before finalizing.
+   Pay special attention to handwritten digits where a '4' can look like
+   a '9'. If you are unsure about a handwritten digit, set confidence to 'low'.
 
 7. If the document's currency doesn't match "currency expected," still
    extract the number as printed, don't convert it. Note the mismatch in
