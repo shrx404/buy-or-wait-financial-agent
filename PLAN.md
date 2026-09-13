@@ -3,6 +3,7 @@
 ## 1. Source-of-truth summary (Phase 0)
 
 ### File Inventory
+
 1. `requests.csv` (250 rows): Contains the evaluation requests (`request_id`, `user_id`, `request_date`, `request_type`, `requested_amount`, `desired_completion_date`, `allows_partial_payment`, `request_text`).
 2. `sample_requests.csv` (25 rows): Examples with filled output for understanding format and styling, NOT ground truth.
 3. `financial_profiles.csv`: Contains user's currency, available balance, min balance, priorities, protected/adjustable expense categories, accepted payment methods, and `max_installment_months`.
@@ -14,6 +15,7 @@
 9. `output.csv` (in `dataset/`): Blank template. (Outputs must be stored at root-level `output.csv`).
 
 ### Decision Rules
+
 - Forecast 90-days into the future to ensure `minimum_balance_to_keep` is maintained.
 - Included cash flow: Settled events, pending debits, confirmed salary (on settlement date).
 - Excluded cash flow: Pending credits, bonuses, refunds, investments gains.
@@ -24,12 +26,15 @@
 - Output: `amount_safe_to_pay`, `affordability_status`, `recommended_payment_method`, `payment_plan`, `earliest_date_for_full_payment`, `spending_changes_needed`, `decision_explanation`.
 
 ### Ambiguity / Resolutions
+
 - Are image amounts trusted as absolute numbers for the linked event? Yes, but they only override blank amounts or conflict with rules if the rule allows.
 - How to handle multiple currencies natively? The requirement states final output in `home_currency`. It's best to normalize all events and amounts into `home_currency` immediately during the loading/joining phase.
 
 ## 2. Architecture overview
+
 The project uses `uv` as the Python package manager for dependencies.
 The batch processor is organized into the following modules (in `code/`):
+
 - `data_loader.py`: Loading and joining the 9 CSVs. Normalizing currencies using `exchange_rates.csv` keyed by settlement-date and currency-pair.
 - `state_builder.py`: Financial state reconstruction. Handles recurrences, pendings vs. settled, duplicate resolution via `linked_event_id`, and conflict resolution order.
 - `forecaster.py`: 90-day forward balance forecaster checking against `minimum_balance_to_keep`.
@@ -38,10 +43,14 @@ The batch processor is organized into the following modules (in `code/`):
 - `main.py`: Orchestration entrypoint. Coordinates the pipeline, batching 250 rows, and writing to the root `output.csv`. Generates the `usage_report.md`.
 
 ## 3. Task checklist
+
 ### Data Loading & Joining
+
 - [x] Load all 9 datasets correctly. (Verified via uv run code/data_loader.py)
 - [x] Implement exact-match currency conversion (settlement-date + currency-pair). (Verified via uv run code/data_loader.py)
+
 ### Financial State Reconstruction
+
 - [x] Isolate recurring from one-time events based on historical support.
 - [x] Reserve pending debits.
 - [x] Exclude pending credits until settled.
@@ -50,15 +59,21 @@ The batch processor is organized into the following modules (in `code/`):
 - [x] Implement conflict resolution: (2) newer record.
 - [x] Implement conflict resolution: (3) settled over forecast.
 - [x] Implement conflict resolution: (4) financially safer.
+
 ### Fact Extraction (LLM/VLM)
+
 - [x] Process `messages.csv` to extract structured facts (amendments, cancellations, confirmed amounts).
 - [x] Process `images.csv` and blank event amounts using VLM.
 - [x] Verify injection-resistance (untrusted inputs don't override challenge rules).
+
 ### 90-Day Forecaster
+
 - [x] Simulate daily balance for 90 days.
 - [x] Calculate `amount_safe_to_pay`.
 - [x] Calculate `earliest_date_for_full_payment`.
+
 ### Decision Engine
+
 - [x] Eligibility rule: `full_payment`.
 - [x] Eligibility rule: `partial_payment` (allowed by request, >0 safe amount, meets deadline).
 - [x] Eligibility rule: `installments` (exact match option, respects `max_installment_months`).
@@ -70,7 +85,9 @@ The batch processor is organized into the following modules (in `code/`):
 - [x] Ranking tie-break 4: Starts payment earlier.
 - [x] Ranking tie-break 5: Uses fewer payments.
 - [x] Ranking tie-break 6: Lowest `payment_option_id`.
+
 ### Orchestration & Output
+
 - [x] `main.py` entrypoint processing `requests.csv`.
 - [x] Generate output rows per schema.
 - [x] Handle `spending_changes_needed` serialization.
@@ -78,11 +95,13 @@ The batch processor is organized into the following modules (in `code/`):
 - [x] Write `usage_report.md`.
 
 ## 4. Open questions / assumptions log
+
 - **Currency Normalization**: Assume all events are immediately converted to the user's `home_currency` on their respective settlement dates. This simplifies forecasting.
 - **Missing Exchange Rates**: If an exchange rate for a specific date is missing but we have past dates, what to do? Assumption: the problem statement says "Fixed, dated conversion rates for foreign-currency records" which implies the required exact rates will be present. I will error or fallback safely if missing.
 - **Message Injection**: Assume any message telling the system to "approve this immediately" will be parsed as `{ "instruction": "approve", "facts": {} }` and ignored, since only `facts` are used by the state builder.
 
 ## 5. Final deliverables checklist
+
 - [x] Root-level `output.csv`: one row per `request_id` in `dataset/requests.csv` (250 rows + header), exact required columns in exact required order
 - [x] `code.zip`: full runnable solution, all prompts/configuration used, README with clear setup/run instructions, and the `evaluation/` folder
 - [x] `evaluation/usage_report.md` inside `code.zip`: model providers/names, model calls, input and output tokens, total and average tokens per request, estimated total and per-request cost, per-model AND overall totals if multiple models are used — computed from the actual final full-dataset run, not estimates
