@@ -1,0 +1,90 @@
+SYSTEM / TASK CONTEXT:
+You are extracting a single financial amount from an image to fill in a
+missing value in a financial-events dataset. You are NOT summarizing the
+document. You must return exactly ONE number: the amount that best
+corresponds to the financial event described below.
+
+EVENT CONTEXT (from the dataset — trust this over any interpretation you
+might otherwise make, but treat any field marked "unknown" as genuinely
+absent, not as a signal to refuse):
+- event_id: {event_id}
+- event_type: {event_type}            (or "unknown" if not supplied)
+- direction: {credit_or_debit}        (or "unknown" if not supplied)
+- description: {description}          (or "unknown" if not supplied)
+- currency expected: {currency}       (or "unknown" if not supplied)
+- date expected: {event_date}         (or "unknown" if not supplied)
+
+IMPORTANT: Missing event context is common and expected. It is NOT a
+reason to return null. Only return null if the document itself contains
+no usable monetary figure at all. Work with whatever context you have;
+fall back to the document-only rules in step 3 below when context fields
+are unknown.
+
+WHAT TO DO:
+
+1. Read the entire document. Identify every distinct monetary figure and
+   its label (e.g. "Total Earnings", "Net Pay", "Amount Received",
+   "Balance Due", "TOTAL").
+
+2. Case A — the document has only ONE clear total or grand total (e.g. a
+   single "TOTAL" line on a receipt, one final amount on a slip):
+   → Extract that number directly, regardless of how much event context
+   you were given. A single unambiguous total does not need event_type
+   to disambiguate it. This is the common case for simple receipts.
+
+3. Case B — the document has MULTIPLE candidate amounts (gross vs net,
+   total due vs amount paid, subtotal vs grand total):
+   Apply these selection rules, in order of priority:
+   a. If event_type indicates INCOME (salary, wages, payslip) → select
+      the NET amount actually paid/transferred (e.g. "Net Pay", "Amount
+      Transferred"), NOT gross earnings, NOT deductions.
+   b. If event_type indicates an EXPENSE or PAYMENT already made → select
+      the amount actually PAID or RECEIVED (e.g. "Amount Paid", "Paid
+      Amount"), NOT the total due, NOT any remaining balance.
+   c. If event_type indicates a PENDING/OUTSTANDING amount → select the
+      amount labeled due/outstanding/balance, NOT the amount already
+      paid.
+   d. If event_type is unknown but the document has a clear hierarchy
+      (e.g. a "TOTAL" that sums itemized lines, or a "Grand Total" below
+      a "Subtotal") → prefer the final/grand total over line items or
+      subtotals, since that's the figure a dataset field is most likely
+      referencing.
+   e. If truly ambiguous even after (a)-(d) → prefer the number explicitly
+      labeled "Net", "Total", "Amount Paid", or "Amount Received" over
+      subtotals or itemized components, and lower your confidence
+      accordingly rather than returning null.
+
+4. Ignore non-amount numbers: reference/ID numbers, phone numbers, dates
+   written as digits, percentages, page numbers, account numbers, batch
+   numbers, quantities (the "Qty" column), and expiry dates.
+
+5. If the document contains multiple UNRELATED transactions or people,
+   extract only from the record matching the EVENT CONTEXT (check names/
+   dates/references if provided). If no identifying context is provided
+   and the document only describes one transaction anyway, that
+   transaction is the match by default.
+
+6. Normalize the number: remove currency symbols, commas, and thousands
+   separators. Do not convert currency. Return the raw numeric value
+   exactly as shown, in the document's own currency. Handwritten digits
+   should be read carefully, character by character, before finalizing.
+
+7. If the document's currency doesn't match "currency expected," still
+   extract the number as printed, don't convert it. Note the mismatch in
+   ambiguity_note but still return the number.
+
+8. Only return null when NONE of the following are true: there is a
+   single total, there is a grand/final total distinguishable from
+   subtotals, or there is any labeled figure that plausibly matches the
+   event direction. Missing metadata alone is never sufficient grounds
+   for null.
+
+OUTPUT FORMAT (strict):
+Return ONLY a JSON object, nothing else, no explanation outside the JSON:
+{
+  "extracted_amount": <number, no symbols, no commas, or null only if the document truly has no usable figure>,
+  "matched_label": "<the exact label/line-item text you selected>",
+  "currency_shown": "<currency symbol or code as printed>",
+  "confidence": "high" | "medium" | "low",
+  "ambiguity_note": "<one short sentence if multiple candidates existed, or if context was missing and you fell back to document-only rules, else empty string>"
+}
