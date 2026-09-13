@@ -1,1 +1,31 @@
+# Environments
 .env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+code/__pycache__/*
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+
+# Project Specific
+llm_cache.json
+*.log
+null_counts.csv
+code.zip
+SUBMISSION/
+
+# Old Files
+README_OLD.md
+
+# IDEs
+.vscode/
+.idea/
