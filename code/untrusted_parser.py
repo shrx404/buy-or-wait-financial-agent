@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import base64
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from google import genai
@@ -14,10 +15,21 @@ class UntrustedParser:
     def __init__(self, data_dir: str = "dataset", api_key: Optional[str] = None):
         self.data_dir = data_dir
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        
         if self.api_key:
             self.client = genai.Client(api_key=self.api_key)
+            self.openai_client = None
+            self.model_primary = "gemini-3.6-flash"
+            self.model_fallback = "gemini-1.5-pro"
         else:
             self.client = None
+            try:
+                from openai import OpenAI
+                self.openai_client = OpenAI(base_url="http://localhost:8867/v1", api_key="lm-studio")
+            except ImportError:
+                self.openai_client = None
+            self.model_primary = "qwen/qwen3-vl-8b"
+            self.model_fallback = "google/gemma-4-e4b"
             
         self.usage = {
             "model_calls": 0,
@@ -52,6 +64,8 @@ class UntrustedParser:
                 str_contents.append(c)
             elif hasattr(c, 'name'):  # File object
                 str_contents.append(c.name)
+            elif isinstance(c, dict): # OpenAI message
+                str_contents.append(json.dumps(c))
             else:
                 str_contents.append(str(c))
         hasher = hashlib.md5()
@@ -77,49 +91,90 @@ class UntrustedParser:
             else:
                 return cached
 
-        if not self.client:
-            return {} if is_json else ""
-            
-        try:
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json" if is_json else "text/plain",
-                temperature=0.0
-            )
-            response = self.client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config
-            )
-            
-            in_tokens = 0
-            out_tokens = 0
-            if response.usage_metadata:
-                in_tokens = response.usage_metadata.prompt_token_count or 0
-                out_tokens = response.usage_metadata.candidates_token_count or 0
+        if self.client:
+            try:
+                config = types.GenerateContentConfig(
+                    response_mime_type="application/json" if is_json else "text/plain",
+                    temperature=0.0
+                )
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
                 
-            with self.usage_lock:
-                self.usage["model_calls"] += 1
-                self.usage["models_used"].add(model_name)
-                self.usage["input_tokens"] += in_tokens
-                self.usage["output_tokens"] += out_tokens
-                # Rough estimate cost for gemini-2.5-flash
-                self.usage["cost_estimate"] += (in_tokens / 1_000_000) * 0.075 + (out_tokens / 1_000_000) * 0.30
+                in_tokens = 0
+                out_tokens = 0
+                if response.usage_metadata:
+                    in_tokens = response.usage_metadata.prompt_token_count or 0
+                    out_tokens = response.usage_metadata.candidates_token_count or 0
+                    
+                with self.usage_lock:
+                    self.usage["model_calls"] += 1
+                    self.usage["models_used"].add(model_name)
+                    self.usage["input_tokens"] += in_tokens
+                    self.usage["output_tokens"] += out_tokens
+                    self.usage["cost_estimate"] += (in_tokens / 1_000_000) * 0.075 + (out_tokens / 1_000_000) * 0.30
+                    
+                text = response.text
+                if is_json:
+                    result = json.loads(text) if text is not None else {}
+                else:
+                    result = text if text is not None else ""
                 
-            text = response.text
-            if is_json:
-                result = json.loads(text) if text is not None else {}
-            else:
-                result = text if text is not None else ""
-            
-            self.cache[cache_key] = {
-                "_cached_wrapper": True,
-                "result": result,
-                "in_tokens": in_tokens,
-                "out_tokens": out_tokens
-            }
-            return result
-        except Exception as e:
-            print(f"LLM Error: {e}")
+                self.cache[cache_key] = {
+                    "_cached_wrapper": True,
+                    "result": result,
+                    "in_tokens": in_tokens,
+                    "out_tokens": out_tokens
+                }
+                return result
+            except Exception as e:
+                print(f"Gemini API Error: {e}")
+                return {} if is_json else ""
+                
+        elif self.openai_client:
+            try:
+                if isinstance(contents, list) and len(contents) > 0 and isinstance(contents[0], dict):
+                    messages = [{"role": "user", "content": contents}]
+                else:
+                    messages = [{"role": "user", "content": "\n".join(str(c) for c in contents)}]
+                    
+                kwargs: Dict[str, Any] = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": 0.0,
+                }
+                    
+                response = self.openai_client.chat.completions.create(**kwargs)  # type: ignore
+                
+                in_tokens = response.usage.prompt_tokens if response.usage else 0
+                out_tokens = response.usage.completion_tokens if response.usage else 0
+                
+                with self.usage_lock:
+                    self.usage["model_calls"] += 1
+                    self.usage["models_used"].add(model_name)
+                    self.usage["input_tokens"] += in_tokens
+                    self.usage["output_tokens"] += out_tokens
+                    # Cost is local, so $0
+                    
+                text = response.choices[0].message.content
+                if is_json:
+                    result = json.loads(text) if text is not None else {}
+                else:
+                    result = text if text is not None else ""
+                
+                self.cache[cache_key] = {
+                    "_cached_wrapper": True,
+                    "result": result,
+                    "in_tokens": in_tokens,
+                    "out_tokens": out_tokens
+                }
+                return result
+            except Exception as e:
+                print(f"LMStudio API Error: {e}")
+                return {} if is_json else ""
+        else:
             return {} if is_json else ""
 
     def parse_messages(self, messages_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
@@ -148,7 +203,7 @@ class UntrustedParser:
             text = row['message_text']
             event_id = row['related_event_id']
             contents = [msg_prompt, f"Message text: {text}"]
-            result = self._call_llm("gemini-2.5-flash", contents)
+            result = self._call_llm(self.model_primary, contents)
             return event_id, result
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -195,26 +250,47 @@ class UntrustedParser:
             
             # To cache image extraction safely, we hash the image path along with prompt
             cache_key_content = f"{row['image_id']}_{prompt}"
-            cache_key_flash = self._get_cache_key("gemini-2.5-flash", [cache_key_content])
-            cache_key_pro = self._get_cache_key("gemini-1.5-pro", [cache_key_content])
+            cache_key_flash = self._get_cache_key(self.model_primary, [cache_key_content])
+            cache_key_pro = self._get_cache_key(self.model_fallback, [cache_key_content])
             
             try:
                 uploaded_file = None
+                base64_image = None
                 
                 def get_result(model, c_key):
-                    nonlocal uploaded_file
+                    nonlocal uploaded_file, base64_image
                     if c_key in self.cache:
                         return self._call_llm(model, [], is_json=True, cache_key=c_key)
+                        
                     if self.client:
                         if uploaded_file is None:
                             uploaded_file = self.client.files.upload(file=image_path)
                         return self._call_llm(model, [uploaded_file, prompt], is_json=True, cache_key=c_key)
+                    elif self.openai_client:
+                        if base64_image is None:
+                            with open(image_path, "rb") as img_file:
+                                base64_image = base64.b64encode(img_file.read()).decode('utf-8')
+                        
+                        contents = [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{base64_image}"
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt
+                            }
+                        ]
+                        return self._call_llm(model, contents, is_json=True, cache_key=c_key)
+                        
                     return None
 
-                result = get_result("gemini-2.5-flash", cache_key_flash)
+                result = get_result(self.model_primary, cache_key_flash)
                 
                 if result and result.get("confidence") in ["low", "medium"]:
-                    result_pro = get_result("gemini-1.5-pro", cache_key_pro)
+                    result_pro = get_result(self.model_fallback, cache_key_pro)
                     if result_pro:
                         result = result_pro
                         
