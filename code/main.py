@@ -38,7 +38,7 @@ def main():
     total_requests = len(loader.requests)
     
     print(f"Processing {total_requests} requests...")
-    for idx, req in loader.requests.iterrows():
+    for i, (idx, req) in enumerate(loader.requests.iterrows()):
         req_id = req['request_id']
         user_id = req['user_id']
         
@@ -72,8 +72,8 @@ def main():
         }
         outputs.append(output_row)
         
-        if (idx + 1) % 25 == 0:
-            print(f"Processed {idx + 1}/{total_requests} requests.")
+        if (i + 1) % 25 == 0:
+            print(f"Processed {i + 1}/{total_requests} requests.")
             
     # Write output.csv
     print("Writing output.csv...")
