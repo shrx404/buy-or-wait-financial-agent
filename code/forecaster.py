@@ -9,9 +9,14 @@ class Forecaster:
         self.min_balance = min_balance
         self.valid_events = valid_events
         self.recurring_patterns = recurring_patterns
+        self._timeline_cache = {}
         
     def _generate_timeline(self, start_date: str, end_date: str) -> pd.DataFrame:
         """Generates all future cash flows between start_date and end_date (inclusive)."""
+        cache_key = f"{start_date}_{end_date}"
+        if cache_key in self._timeline_cache:
+            return self._timeline_cache[cache_key]
+            
         start = pd.to_datetime(start_date)
         end = pd.to_datetime(end_date)
         
@@ -62,13 +67,15 @@ class Forecaster:
                     break
                     
                 if start <= curr_date <= end:
-                    # Determine flexibility: assume fixed unless we know it's flexible.
-                    # We can refine this if we pass expense_categories_user_is_willing_to_reduce
-                    flows.append({'date': curr_date, 'amount': amt, 'event_id': f"recurring_{p['category']}_{curr_date.strftime('%Y%m%d')}", 'category': p['category'], 'is_flexible': False})
+                    # Determine flexibility from the pattern
+                    is_flexible = p.get('is_flexible', False)
+                    flows.append({'date': curr_date, 'amount': amt, 'event_id': f"recurring_{p['category']}_{curr_date.strftime('%Y%m%d')}", 'category': p['category'], 'is_flexible': is_flexible})
 
         df_flows = pd.DataFrame(flows)
         if not df_flows.empty:
             df_flows = df_flows.sort_values('date')
+            
+        self._timeline_cache[cache_key] = df_flows
         return df_flows
 
     def simulate(self, start_date: str, days: int = 90, candidate_plan: Optional[List[Tuple[str, float]]] = None, spending_changes: Optional[List[Dict[str, Any]]] = None) -> Tuple[bool, float]:
@@ -96,9 +103,13 @@ class Forecaster:
                 amt = row['amount']
                 
                 # Apply spending changes
-                if spending_changes and row['direction'] == 'debit':
-                    # Check if this flow is stopped or reduced
-                    pass # We will implement this if needed. Currently amount_safe_to_pay is BEFORE optional spending changes.
+                if spending_changes and amt < 0:
+                    for sc in spending_changes:
+                        if sc['event_id'] == row['event_id']:
+                            if sc['action'] == 'stop':
+                                amt = 0.0
+                            elif sc['action'] == 'reduce_to':
+                                amt = -sc['new_amount']
                     
                 if d not in daily_flows:
                     daily_flows[d] = 0.0

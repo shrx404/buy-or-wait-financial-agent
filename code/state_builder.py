@@ -25,11 +25,11 @@ class StateBuilder:
         
     def _apply_facts(self):
         """Apply amendments, cancellations, or extracted amounts from messages/images."""
-        # For each event, if we have extracted facts, update it.
-        # This covers Conflict Resolution (1) Explicit cancellation, settlement, or amendment.
+        self.events['has_explicit_fact'] = False
         for event_id, fact_updates in self.facts.items():
             idx = self.events.index[self.events['event_id'] == event_id]
             if not idx.empty:
+                self.events.loc[idx, 'has_explicit_fact'] = True
                 for k, v in fact_updates.items():
                     if k == 'amount':
                         self.events.loc[idx, 'amount_home_currency'] = v
@@ -42,25 +42,18 @@ class StateBuilder:
         """
         De-duplicate repeated representations.
         Conflict Resolution:
-        (1) Explicit cancellation/settlement/amendment (handled in facts or by status)
-        (2) Newer record from the same source (event_id order or event_date)
-        (3) Settled event over estimate or forecast.
-        (4) Financially safer.
+        (1) Explicit cancellation, settlement, or amendment (has_explicit_fact)
+        (2) Newer record from the same source (event_date, then event_id)
+        (3) Settled event
+        (4) Financially safer
         """
-        # Build a map of linked events
-        # A linked_event_id points to an EARLIER event in the same transaction.
-        # We want to group by these chains and pick the active one.
-        
-        # Find all root events
         chain_map = {}
         for _, row in self.events.iterrows():
             eid = row['event_id']
             lid = row['linked_event_id']
             
-            # Follow links to find the root
             curr = lid
             while pd.notna(curr) and curr in self.events['event_id'].values:
-                # Find the parent's linked_event_id
                 parent_row = self.events[self.events['event_id'] == curr].iloc[0]
                 if pd.notna(parent_row['linked_event_id']):
                     curr = parent_row['linked_event_id']
@@ -78,26 +71,21 @@ class StateBuilder:
                 resolved_events.append(chain[0])
                 continue
                 
-            # We have multiple events in a lifecycle chain.
-            # 1. Prefer cancelled/failed to mark the whole chain dead, OR prefer settled.
-            # If any is settled, use the settled one.
-            settled_events = [e for e in chain if e['status'] == 'settled']
-            if settled_events:
-                # If multiple settled (rare), pick the latest by event_date or highest amount if debit (safer)
-                # Sort by event_date desc
-                settled_events.sort(key=lambda x: x['event_date'], reverse=True)
-                resolved_events.append(settled_events[0])
-                continue
+            def sort_key(e):
+                c1 = e.get('has_explicit_fact', False)
                 
-            cancelled_events = [e for e in chain if e['status'] in ['cancelled', 'failed']]
-            if cancelled_events:
-                # Chain is cancelled
-                cancelled_events.sort(key=lambda x: x['event_date'], reverse=True)
-                resolved_events.append(cancelled_events[0])
-                continue
+                date_val = pd.to_datetime(e['event_date']) if pd.notna(e['event_date']) else pd.Timestamp.min
+                c2 = (date_val, str(e['event_id']))
                 
-            # Otherwise, pick the newest record (by event_date, then event_id string sort as fallback)
-            chain.sort(key=lambda x: (x['event_date'], x['event_id']), reverse=True)
+                c3 = (e['status'] == 'settled')
+                
+                amt = float(e['amount_home_currency']) if pd.notna(e['amount_home_currency']) else 0.0
+                is_debit = (str(e['direction']).lower() == 'debit')
+                c4 = amt if is_debit else -amt
+                
+                return (c1, c2, c3, c4)
+                
+            chain.sort(key=sort_key, reverse=True)
             resolved_events.append(chain[0])
             
         self.events = pd.DataFrame(resolved_events)
@@ -162,6 +150,10 @@ class StateBuilder:
         settled['event_date_ts'] = pd.to_datetime(settled['event_date'])
         
         groups = settled.groupby(['category', 'direction'])
+        
+        protected_str = str(self.profile.get('protected_expense_categories', ''))
+        protected = protected_str.split('|') if pd.notna(protected_str) else []
+        
         for (category, direction), group in groups:
             if len(group) >= 2:
                 # Sort by date
@@ -195,7 +187,8 @@ class StateBuilder:
                         'pattern': pattern,
                         'forecast_amount': forecast_amt,
                         'last_date': group['event_date_ts'].max().strftime('%Y-%m-%d'),
-                        'description': group.iloc[-1]['description']
+                        'description': group.iloc[-1]['description'],
+                        'is_flexible': (category not in protected) and direction == 'debit'
                     })
 
     def get_valid_events(self) -> pd.DataFrame:
