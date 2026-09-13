@@ -1,13 +1,13 @@
 import os
 import json
 import base64
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import pandas as pd
 from google import genai
 from google.genai import types
 
 class UntrustedParser:
-    def __init__(self, data_dir: str = "dataset", api_key: str = None):
+    def __init__(self, data_dir: str = "dataset", api_key: Optional[str] = None):
         self.data_dir = data_dir
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if self.api_key:
@@ -46,17 +46,18 @@ class UntrustedParser:
             self.usage["model_calls"] += 1
             self.usage["models_used"].add(model_name)
             if response.usage_metadata:
-                in_tokens = response.usage_metadata.prompt_token_count
-                out_tokens = response.usage_metadata.candidates_token_count
+                in_tokens = response.usage_metadata.prompt_token_count or 0
+                out_tokens = response.usage_metadata.candidates_token_count or 0
                 self.usage["input_tokens"] += in_tokens
                 self.usage["output_tokens"] += out_tokens
                 # Rough estimate cost for gemini-2.5-flash
                 # $0.075 / 1M input, $0.30 / 1M output
                 self.usage["cost_estimate"] += (in_tokens / 1_000_000) * 0.075 + (out_tokens / 1_000_000) * 0.30
                 
+            text = response.text
             if is_json:
-                return json.loads(response.text)
-            return response.text
+                return json.loads(text) if text is not None else {}
+            return text if text is not None else ""
         except Exception as e:
             print(f"LLM Error: {e}")
             return {} if is_json else ""
