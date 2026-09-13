@@ -5,9 +5,11 @@ description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
     "google-genai>=2.23.0",
+    "openai>=3.13.0",
     "pandas>=3.0.5",
     "pytest>=9.1.1",
     "python-dateutil>=2.9.0.post0",
+    "python-dotenv>=1.2.3",
 ]
 
 [tool.pyright]
