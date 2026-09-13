@@ -39,43 +39,43 @@ The batch processor is organized into the following modules (in `code/`):
 
 ## 3. Task checklist
 ### Data Loading & Joining
-- [ ] Load all 9 datasets correctly.
-- [ ] Implement exact-match currency conversion (settlement-date + currency-pair).
+- [x] Load all 9 datasets correctly. (Verified via uv run code/data_loader.py)
+- [x] Implement exact-match currency conversion (settlement-date + currency-pair). (Verified via uv run code/data_loader.py)
 ### Financial State Reconstruction
-- [ ] Isolate recurring from one-time events based on historical support.
-- [ ] Reserve pending debits.
-- [ ] Exclude pending credits until settled.
-- [ ] Exclude unrealized/non-cash records.
-- [ ] Implement conflict resolution: (1) explicit cancellation/amendment.
-- [ ] Implement conflict resolution: (2) newer record.
-- [ ] Implement conflict resolution: (3) settled over forecast.
-- [ ] Implement conflict resolution: (4) financially safer.
+- [x] Isolate recurring from one-time events based on historical support.
+- [x] Reserve pending debits.
+- [x] Exclude pending credits until settled.
+- [x] Exclude unrealized/non-cash records.
+- [x] Implement conflict resolution: (1) explicit cancellation/amendment.
+- [x] Implement conflict resolution: (2) newer record.
+- [x] Implement conflict resolution: (3) settled over forecast.
+- [x] Implement conflict resolution: (4) financially safer.
 ### Fact Extraction (LLM/VLM)
-- [ ] Process `messages.csv` to extract structured facts (amendments, cancellations, confirmed amounts).
-- [ ] Process `images.csv` and blank event amounts using VLM.
-- [ ] Verify injection-resistance (untrusted inputs don't override challenge rules).
+- [x] Process `messages.csv` to extract structured facts (amendments, cancellations, confirmed amounts).
+- [x] Process `images.csv` and blank event amounts using VLM.
+- [x] Verify injection-resistance (untrusted inputs don't override challenge rules).
 ### 90-Day Forecaster
-- [ ] Simulate daily balance for 90 days.
-- [ ] Calculate `amount_safe_to_pay`.
-- [ ] Calculate `earliest_date_for_full_payment`.
+- [x] Simulate daily balance for 90 days.
+- [x] Calculate `amount_safe_to_pay`.
+- [x] Calculate `earliest_date_for_full_payment`.
 ### Decision Engine
-- [ ] Eligibility rule: `full_payment`.
-- [ ] Eligibility rule: `partial_payment` (allowed by request, >0 safe amount, meets deadline).
-- [ ] Eligibility rule: `installments` (exact match option, respects `max_installment_months`).
-- [ ] Eligibility rule: `wait`.
-- [ ] Eligibility rule: `not_recommended`.
-- [ ] Ranking tie-break 1: Completes by desired date.
-- [ ] Ranking tie-break 2: Requires no spending changes.
-- [ ] Ranking tie-break 3: Minimizes total amount paid.
-- [ ] Ranking tie-break 4: Starts payment earlier.
-- [ ] Ranking tie-break 5: Uses fewer payments.
-- [ ] Ranking tie-break 6: Lowest `payment_option_id`.
+- [x] Eligibility rule: `full_payment`.
+- [x] Eligibility rule: `partial_payment` (allowed by request, >0 safe amount, meets deadline).
+- [x] Eligibility rule: `installments` (exact match option, respects `max_installment_months`).
+- [x] Eligibility rule: `wait`.
+- [x] Eligibility rule: `not_recommended`.
+- [x] Ranking tie-break 1: Completes by desired date.
+- [x] Ranking tie-break 2: Requires no spending changes.
+- [x] Ranking tie-break 3: Minimizes total amount paid.
+- [x] Ranking tie-break 4: Starts payment earlier.
+- [x] Ranking tie-break 5: Uses fewer payments.
+- [x] Ranking tie-break 6: Lowest `payment_option_id`.
 ### Orchestration & Output
-- [ ] `main.py` entrypoint processing `requests.csv`.
-- [ ] Generate output rows per schema.
-- [ ] Handle `spending_changes_needed` serialization.
-- [ ] Track LLM tokens and costs.
-- [ ] Write `usage_report.md`.
+- [x] `main.py` entrypoint processing `requests.csv`.
+- [x] Generate output rows per schema.
+- [x] Handle `spending_changes_needed` serialization.
+- [x] Track LLM tokens and costs.
+- [x] Write `usage_report.md`.
 
 ## 4. Open questions / assumptions log
 - **Currency Normalization**: Assume all events are immediately converted to the user's `home_currency` on their respective settlement dates. This simplifies forecasting.
@@ -83,9 +83,9 @@ The batch processor is organized into the following modules (in `code/`):
 - **Message Injection**: Assume any message telling the system to "approve this immediately" will be parsed as `{ "instruction": "approve", "facts": {} }` and ignored, since only `facts` are used by the state builder.
 
 ## 5. Final deliverables checklist
-- [ ] Root-level `output.csv`: one row per `request_id` in `dataset/requests.csv` (250 rows + header), exact required columns in exact required order
-- [ ] `code.zip`: full runnable solution, all prompts/configuration used, README with clear setup/run instructions, and the `evaluation/` folder
-- [ ] `evaluation/usage_report.md` inside `code.zip`: model providers/names, model calls, input and output tokens, total and average tokens per request, estimated total and per-request cost, per-model AND overall totals if multiple models are used — computed from the actual final full-dataset run, not estimates
-- [ ] `log.txt` (per AGENTS.md) is being appended to correctly as the chat transcript deliverable — confirm this is happening throughout, not just at the end
-- [ ] No organizer-only files (anything outside `dataset/`) were used as a prediction input
-- [ ] No hardcoded per-request labels anywhere in the code
+- [x] Root-level `output.csv`: one row per `request_id` in `dataset/requests.csv` (250 rows + header), exact required columns in exact required order
+- [x] `code.zip`: full runnable solution, all prompts/configuration used, README with clear setup/run instructions, and the `evaluation/` folder
+- [x] `evaluation/usage_report.md` inside `code.zip`: model providers/names, model calls, input and output tokens, total and average tokens per request, estimated total and per-request cost, per-model AND overall totals if multiple models are used — computed from the actual final full-dataset run, not estimates
+- [x] `log.txt` (per AGENTS.md) is being appended to correctly as the chat transcript deliverable — confirm this is happening throughout, not just at the end
+- [x] No organizer-only files (anything outside `dataset/`) were used as a prediction input
+- [x] No hardcoded per-request labels anywhere in the code
