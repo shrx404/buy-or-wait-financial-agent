@@ -13,7 +13,7 @@ The pipeline is highly modularized, with each component handling a specific phas
 | Component | Module | Description |
 | :--- | :--- | :--- |
 | **Data Loader** | `code/data_loader.py` | Loads and structures the various CSV datasets, profiles, and exchange rates. |
-| **Untrusted Parser** | `code/untrusted_parser.py` | Leverages Google Gemini (`2.5-flash` with `1.5-pro` fallback) to extract financial facts from chat messages and receipt images. Implements concurrency, caching, and token tracking. |
+| **Untrusted Parser** | `code/untrusted_parser.py` | Leverages Google Gemini (`3.6-flash` with `1.5-pro` fallback) or local models via LMStudio (`qwen3-vl-8b` / `gemma-4-e4b`) to extract financial facts from chat messages and receipt images. Implements concurrency, caching, and token tracking. |
 | **State Builder** | `code/state_builder.py` | Reconstructs the user's financial history. Resolves duplicate/conflicting transactions and extracts recurring, fixed, and flexible spending patterns. |
 | **Forecaster** | `code/forecaster.py` | Generates a daily projected cash flow timeline over a 90-day window. Uses caching to simulate if candidate payment plans will breach the minimum balance threshold. |
 | **Decision Engine** | `code/decision_engine.py` | Ranks available payment methods (Full, Partial, Installments, Wait). Automatically negotiates reductions in flexible spending categories to afford a purchase if needed. |
@@ -53,15 +53,13 @@ If a purchase is initially unaffordable, the agent scans future forecasted expen
 
 ### Installation & API Keys
 1. Clone the repository and navigate to the project root.
-2. Set your Google Gemini API key as an environment variable:
+2. Create a `.env` file in the root directory and set your Google Gemini API key:
 
-```bash
-# On Windows (PowerShell)
-$env:GEMINI_API_KEY="your_api_key_here"
-
-# On macOS/Linux
-export GEMINI_API_KEY="your_api_key_here"
+```env
+GEMINI_API_KEY="your_api_key_here"
 ```
+
+*Note: If no Gemini API key is provided, the system will automatically fall back to using a local LMStudio server running at `http://localhost:8867/v1`. It defaults to using `qwen/qwen3-vl-8b` as the primary multimodal model and `google/gemma-4-e4b` as the fallback model. Ensure these models are loaded in LMStudio before running.*
 
 ### Running the Pipeline
 Simply run the orchestrator script using `uv`:
